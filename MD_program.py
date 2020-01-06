@@ -78,7 +78,7 @@ def initialize_MD(temperature, temp_range, positions, parameters):
 	"""
 	Takes in the temperture to define a set of inital velocity vectors. Speeds of the particles are
 	assigned by creating a list of temperatures whose average equals the input temperature. Current
-	approch does NOT guarantee a Boltzmann distribution from the start.
+	approch does NOT guarantee a Boltzmann distribution from the start. CHECK UNITS!!
 	"""
 	list_of_temperatures = []
 	list_of_speeds = []
@@ -148,8 +148,6 @@ def calculate_forces(positions, positions_with_replicas, parameters, r_cutoff):
     """
 	for i in range(len(positions)):
 		for j in range(i+1,len(positions_with_replicas)):
-			i = 0
-			j = 1
 			r_vect = positions[i]['pos_vect'] - positions_with_replicas[j]['pos_vect']
 			r_mag = np.linalg.norm(r_vect)
 			if r_mag <= r_cutoff:
@@ -171,12 +169,23 @@ def calculate_forces(positions, positions_with_replicas, parameters, r_cutoff):
 	return positions
 
 
-def integrate_forces():
+def integrate_forces(positions, parameters, timestep):
     """
     Uses the calculate forces and the time step to update the positions of the particles in the
     system.
     """
-    return
+	for particle in positions:
+		type = particle['type']
+		mass = parameters[type]['mass']
+		vel_init = particle['vel_vect']
+		pos_init = particle['pos_vect'[]
+		accel = [force/mass for force in particle['force_vect']]
+		vel_final = [vel_init[i] + accel[i]*timestep for i in range(len(vel_init))]
+		pos_final = [0.5*(vel_final[i]+vel_init[i])*timestep + pos_init[i] for i in range(len(vel_init))]
+		particle['vel_vect'] = vel_final
+		particle['pos_vect'] = pos_final
+
+	return positions
 
 
 def check_boundaries():
