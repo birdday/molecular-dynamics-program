@@ -170,82 +170,105 @@ def calculate_forces(positions, positions_with_replicas, parameters, r_cutoff):
 
 
 def integrate_forces(positions, parameters, timestep):
-    """
-    Uses the calculate forces and the time step to update the positions of the particles in the
-    system.
-    """
+	"""
+	Uses the calculate forces and the time step to update the positions of the particles in the
+	system.
+	"""
 	for particle in positions:
+
 		type = particle['type']
 		mass = parameters[type]['mass']
 		vel_init = particle['vel_vect']
-		pos_init = particle['pos_vect'[]
+		pos_init = particle['pos_vect']
+
 		accel = [force/mass for force in particle['force_vect']]
 		vel_final = [vel_init[i] + accel[i]*timestep for i in range(len(vel_init))]
 		pos_final = [0.5*(vel_final[i]+vel_init[i])*timestep + pos_init[i] for i in range(len(vel_init))]
-		particle['vel_vect'] = vel_final
-		particle['pos_vect'] = pos_final
+		particle['vel_vect'] = np.array(vel_final)
+		particle['pos_vect'] = np.array(pos_final)
 
 	return positions
 
 
-def check_boundaries():
-    """
-    Check if any particle has gone beyond the boundary, and if so update position through periodic
-    boundary conditions.
-    """
+def check_boundaries(positions, box_size):
+	"""
+	Check if any particle has gone beyond the boundary, and if so update position through periodic
+	boundary conditions.
+	"""
+	if box_size != None:
+		box_x = box_size[0]
+		box_y = box_size[1]
+		box_z = box_size[2]
+	else:
+		print('Box size needed to apply periodic boundary conditions!')
+
 	for particle in positions:
 		# Check x-positiions
 		if particle['pos_vect'][0] < 0:
-			['pos_vect'][0] = box_x + ['pos_vect'][0];
+			particle['pos_vect'][0] = box_x + particle['pos_vect'][0];
 		if particle['pos_vect'][0] > box_x:
-			['pos_vect'][0] = ['pos_vect'][0] - box_x;
+			particle['pos_vect'][0] = particle['pos_vect'][0] - box_x;
 
 		# Check x-positiions
 		if particle['pos_vect'][1] < 0:
-			['pos_vect'][1] = box_y + ['pos_vect'][1];
+			particle['pos_vect'][1] = box_y + particle['pos_vect'][1];
 		if particle['pos_vect'][1] > box_y:
-			['pos_vect'][1] = ['pos_vect'][1] - box_y;
+			particle['pos_vect'][1] = particle['pos_vect'][1] - box_y;
 
 		# Check x-positiions
 		if particle['pos_vect'][2] < 0:
-			['pos_vect'][2] = box_z + ['pos_vect'][2];
+			particle['pos_vect'][2] = box_z + particle['pos_vect'][2];
 		if particle['pos_vect'][2] > box_z:
-			['pos_vect'][2] = ['pos_vect'][2] - box_z;
+			particle['pos_vect'][2] = particle['pos_vect'][2] - box_z;
 
-    return
+	return positions
 
 
-def run_MD(positions_file, parameters_file, init_cycles, prod_cycles, temperature, box_size, r_cutoff, time_step):
-    positions = load_positions(positions_file, box_size)
-    parameters = load_parameters()
-    initialize_MD()
+def log_positions(positions, cycle_num, filename):
+	if cycle_num == 0:
+		csvfile = open(filename,'w', newline='')
+	else:
+		csvfile = open(filename,'a', newline='')
+	writer = csv.writer(csvfile, delimiter="\t")
+	writer.writerow(str(len(positions)))
+	writer.writerow(['Cycle Number = '+str(cycle_num)])
+	for particle in positions:
+		type = particle['type']
+		xyz = ' '.join(map(str, particle['pos_vect']))
+		writer.writerow([type, xyz])
 
-    for i in range(init_cycles):
+
+def run_MD(positions_file, parameters_file, log_filename, init_cycles, production_cycles, temperature, temp_range, box_size, r_cutoff, time_step):
+	positions = load_positions(positions_file, box_size)
+	parameters = load_parameters(parameters_file)
+	initialize_MD(temperature, temp_range, positions, parameters)
+
+	for i in range(init_cycles):
+		cycle_num = i
 		positions_with_replicas = replicate_cell(positions, box_size)
-        forces = calculate_forces()
-        pos_vects_temp, vel_vects = integrate_forces()
-        pos_vects = check_boundaries()
-    for i in range(production_cycles):
-		positions_with_replicas = replicate_cell(positions, box_size)
-        forces = calculate_forces()
-        pos_vects_temp, vel_vects = integrate_forces()
-        pos_vects = check_boundaries()
-
-	return
+		calculate_forces(positions, positions_with_replicas, parameters, r_cutoff)
+		integrate_forces(positions, parameters, timestep)
+		check_boundaries(positions, box_size)
+		log_positions(positions, cycle_num, log_filename)
+	# for i in range(production_cycles):
+	# 	cycle_num = init_cycles+i
+	# 	positions_with_replicas = replicate_cell(positions, box_size)
+	# 	calculate_forces(positions, positions_with_replicas, parameters, r_cutoff)
+	# 	integrate_forces(positions, parameters, timestep)
+	# 	check_boundaries(positions, box_size)
+	# 	log_positions(positions, cycle_num, log_filename)
 
 
 # Exeute Program
-params_file = 'LJ_params.def'
 pos_file = 'test_pos.xyz'
+params_file = 'LJ_params.def'
+log_file = '/Users/brian_day/Desktop/log_file_text.xyz'
 init_cycles = 100
 prod_cycles = 200
-r_cutoff = 10
 temperature = 300 # Kelvin
-box_size = [30,30,30] # Angstrom
+temp_range = 30
+box_size = [10,10,10] # Angstrom
+r_cutoff = 8
+timestep = 1e-3
 
-positions = load_positions(pos_file, box_size)
-positions_with_replicas = replicate_cell(positions, box_size)
-
-parameters = load_parameters(params_file)
-positions = initialize_MD(temperature, 100, positions, parameters)
-positions = calculate_forces(positions, positions_with_replicas, parameters, 10)
+run_MD(pos_file, params_file, log_file, init_cycles, prod_cycles, temperature, temp_range, box_size, r_cutoff, timestep
