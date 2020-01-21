@@ -158,11 +158,10 @@ def calculate_forces(positions, positions_with_replicas, parameters, r_cutoff):
 				eps1 = parameters[type1]['epsilon']
 				eps2 = parameters[type2]['epsilon']
 				sigma_mix, epsilon_mix = apply_mixing_rules(sigma1, sigma2, eps1, eps2, mixing_rules='LB')
-				LJ_potential = 4*epsilon_mix*((sigma_mix/r_mag)**12 - (sigma_mix/r_mag)**6)
+				#LJ_potential = 4*epsilon_mix*((sigma_mix/r_mag)**12 - (sigma_mix/r_mag)**6)
+				LF_force = 4*epsilon_mix*( -12*(sigma_mix**12/r_mag**13) + 6*(sigma_mix**6/r_mag**7))
 
-				# Check the force caluclation!! Seems off...
-				# Not sure directionality is properly handled
-				positions[i]['force_vect'] = positions[i]['force_vect'] + [LJ_potential*val for val in r_vect/r_mag]
+				positions[i]['force_vect'] = positions[i]['force_vect'] + [LJ_force*val for val in r_vect/r_mag]
 				if j <= len(positions)-1:
 					positions[j]['force_vect'] = positions[j]['force_vect'] + [-1*LJ_potential*val for val in r_vect/r_mag]
 
