@@ -8,38 +8,42 @@ import csv
 import numpy as np
 import random as rand
 
+# Internal System of Units
+# Time (t') = 1 s
+# Length (l') = 1x10^-10 m = 1 Angstrom
+# Mass (m') = 1.660539x10^-27 kg = 1 Da = 1 u
+	# This is simply inverse of Avogadro's number.
+# Temperature = Kelvin
+
+# New Boltmann Coefficient
+k_B = 1.38064852e-23 	# [m^2 kg s^-2 K^-1]
+k_Bp = 8.314459920816467e23 	# [A^2 Da s^-2 K^-1]
+	# Universal gas constant with differnet units
 
 # Define functions
-def load_positions(filename, box_size=None):
+def load_positions(filename):
 	"""
 	Load the particle types and positions as a dictionary by atom number.
 	"""
+
+	# Load the positions file.
 	with open(filename,newline='') as csvfile:
 		output_data = csv.reader(csvfile, delimiter="\t")
 		output_data = list(output_data)
 
+	# Initialize empty positions list, parse from file.
 		positions_list = []
-
-		if box_size != None:
-			box_x = box_size[0]
-			box_y = box_size[1]
-			box_z = box_size[2]
-
 		for i in range(1,len(output_data)):
 			row = output_data[i]
 			temp_dict = {}
 			temp_dict['num'] = i
 			temp_dict['type'] = row[0]
-			if len(row) > 1:
-				temp_dict['pos_vect'] = np.array([float(item) for item in row[1:4]])
-			elif box_size != None:
-				temp_dict['pos_vect'] = np.array([rand.uniform(0,box_x), rand.uniform(0,box_y), rand.uniform(0,box_z)])
-			else:
-				print('Box size needed to apply random coordinates!')
-
-			temp_dict['vel_vect'] = ''
-			temp_dict['force_vect'] = np.array([0,0,0])
+			temp_dict['pos_vect'] = np.array([float(item) for item in row[1:4]])
+			temp_dict['vel_vect'] = np.array([0.0, 0.0, 0.0])
+			temp_dict['force_vect'] = np.array([0.0, 0.0, 0.0])
+			temp_dict['KE'] = 0.0
 			positions_list.append(temp_dict)
+
 		return positions_list
 
 
@@ -48,10 +52,13 @@ def load_parameters(filename):
 	Load the Lennard-Jones (and other relevant parameters as updated) to be used in calculating the
 	forces.
 	"""
+
+	# Load the parameters file.
 	with open(filename,newline='') as csvfile:
 		output_data = csv.DictReader(csvfile, delimiter="\t")
 		output_data = list(output_data)
 
+	# Initialize empty parameters dictionary.
 		params_dict = {}
 		for row in output_data:
 			type = row['type']
@@ -70,30 +77,58 @@ def create_random_unit_vector():
 	"""
 	vector = np.array([rand.uniform(-1,1), rand.uniform(-1,1), rand.uniform(-1,1)])
 	vector_mag = np.linalg.norm(vector)
-	unit_vector = [val/vector_mag for val in vector]
+	unit_vector = np.array([val/vector_mag for val in vector])
 	return unit_vector
 
 
-def initialize_MD(temperature, temp_range, positions, parameters):
+def initialize_MD(temperature, positions, parameters, distribution='Boltzmann'):
 	"""
-	Takes in the temperture to define a set of inital velocity vectors. Speeds of the particles are
-	assigned by creating a list of temperatures whose average equals the input temperature. Current
-	approch does NOT guarantee a Boltzmann distribution from the start. CHECK UNITS!!
+	Takes in the temperture to define a set of inital velocity vectors. Velcities can either be
+	assigned to have an (approximately) uniform distribtuion or an (approximately) Boltzmann
+	distribution. Simulations should still include initialization cycles before any properties are
+	calculated.
+	Velocities are normalized such that the total momentum is zero (i.e. No externl forces).
 	"""
-	list_of_temperatures = []
-	list_of_speeds = []
 
+	# Assign initial normalized velocities of a given distribution type.
+	# It can be shown that the Boltzmann Distribution is simply the sum of three normal
+	# distributions of the momentum with variance mkT, where m i the molecular mass, k is the
+	# Boltzmann constant, and T is the temperature. This property can be leverage during
+	# initialization.
+	k_Bp = 8.314459920816467e23
+	momentum_total = np.array([0.0,0.0,0.0])
+
+	if distribution == 'Uniform':
+		for particle in positions:
+			type = particle['type']
+			mass = parameters[type]['mass']
+			particle['vel_vect'] = rand.uniform(0,1) * create_random_unit_vector()
+			momentum_total += [ mass*vel for vel in particle['vel_vect'] ]
+
+	elif distribution == 'Boltzmann':
+		for particle in positions:
+			type = particle['type']
+			mass = parameters[type]['mass']
+			sigma = np.sqrt(mass*k_Bp*temperature)
+			particle['vel_vect'] = np.array([val/mass for val in np.random.normal(0,sigma,3)])
+			momentum_total += [ mass*vel for vel in particle['vel_vect'] ]
+
+	else:
+		print('Invalid Distribution Type!')
+
+	# Shift All Vectors so that Total Momentum is 0 (i.e. No External Forces)
+	num_particles = len(positions)
+	velocity_total = np.array([0.0,0.0,0.0])
 	for particle in positions:
 		type = particle['type']
 		mass = parameters[type]['mass']
-		temp = rand.uniform(temperature-temp_range, temperature+temp_range)
-		list_of_temperatures.extend([temp])
-		speed = np.sqrt(2*temp/mass)
-		list_of_speeds.extend([speed])
-		vel_vect = np.array([speed*i for i in create_random_unit_vector()])
-		particle['vel_vect'] = vel_vect
+		particle['vel_vect'] += -1*momentum_total/mass/num_particles
+		particle['KE'] = 0.5*mass*np.linalg.norm(particle['vel_vect'])**2
+		velocity_total += particle['vel_vect']
 
-	return positions
+	# Scale All Vectors so that the initial Temperature is Correct
+	# Does the total momentum in x need to equal the total momentum in y and z, or just overall total is 0?
+	return positions, velocity_total
 
 
 def apply_mixing_rules(sigma1, sigma2, eps1, eps2, mixing_rules=None):
@@ -146,6 +181,12 @@ def calculate_forces(positions, positions_with_replicas, parameters, r_cutoff):
     Evaluates Lennard-Jones potentials for all particles and assigns forces.
     Update later to include charge-charge interactions.
     """
+	k_Bp = 8.314459920816467e23
+
+	for i in range(len(positions)):
+		positions[i]['force_vect'] = np.array([0.0,0.0,0.0])
+
+	PE_total = 0.0
 	for i in range(len(positions)):
 		for j in range(i+1,len(positions_with_replicas)):
 			r_vect = positions[i]['pos_vect'] - positions_with_replicas[j]['pos_vect']
@@ -158,14 +199,16 @@ def calculate_forces(positions, positions_with_replicas, parameters, r_cutoff):
 				eps1 = parameters[type1]['epsilon']
 				eps2 = parameters[type2]['epsilon']
 				sigma_mix, epsilon_mix = apply_mixing_rules(sigma1, sigma2, eps1, eps2, mixing_rules='LB')
-				#LJ_potential = 4*epsilon_mix*((sigma_mix/r_mag)**12 - (sigma_mix/r_mag)**6)
-				LF_force = 4*epsilon_mix*( -12*(sigma_mix**12/r_mag**13) + 6*(sigma_mix**6/r_mag**7))
+
+				LJ_potential = 4*epsilon_mix*k_Bp*( (sigma_mix/r_mag)**12 - (sigma_mix/r_mag)**6 )
+				LJ_force = -4*epsilon_mix*k_Bp*( -12*(sigma_mix**12/r_mag**13) + 6*(sigma_mix**6/r_mag**7))
+				PE_total += LJ_potential
 
 				positions[i]['force_vect'] = positions[i]['force_vect'] + [LJ_force*val for val in r_vect/r_mag]
-				if j <= len(positions)-1:
-					positions[j]['force_vect'] = positions[j]['force_vect'] + [-1*LJ_potential*val for val in r_vect/r_mag]
+				if j < len(positions):
+					positions[j]['force_vect'] = positions[j]['force_vect'] + [-1*LJ_force*val for val in r_vect/r_mag]
 
-	return positions
+	return PE_total
 
 
 def integrate_forces(positions, parameters, timestep):
@@ -182,9 +225,41 @@ def integrate_forces(positions, parameters, timestep):
 
 		accel = [force/mass for force in particle['force_vect']]
 		vel_final = [vel_init[i] + accel[i]*timestep for i in range(len(vel_init))]
-		pos_final = [0.5*(vel_final[i]+vel_init[i])*timestep + pos_init[i] for i in range(len(vel_init))]
+		pos_final = [vel_final[i]*timestep + pos_init[i] for i in range(len(vel_init))]
 		particle['vel_vect'] = np.array(vel_final)
 		particle['pos_vect'] = np.array(pos_final)
+		particle['KE'] = 0.5*mass*np.linalg.norm(particle['vel_vect'])**2
+
+
+def integrate_forces_verlet(positions, parameters, timestep, box_size, r_cutoff):
+
+	for particle in positions:
+
+		type = particle['type']
+		mass = parameters[type]['mass']
+		vel_init = particle['vel_vect']
+		pos_init = particle['pos_vect']
+
+		accel = [force/mass for force in particle['force_vect']]
+		vel_half  = [vel_init[i] + accel[i]*timestep/2 for i in range(len(vel_init))]
+		pos_final = [pos_init[i] + vel_half[i]*timestep for i in range(len(vel_half))]
+		particle['vel_half'] = np.array(vel_half)
+		particle['pos_vect'] = np.array(pos_final)
+
+	check_boundaries(positions, box_size)
+	# positions_with_replicas = replicate_cell(positions, box_size)
+	PE_total = calculate_forces(positions, positions, parameters, r_cutoff)
+
+	for particle in positions:
+
+		type = particle['type']
+		mass = parameters[type]['mass']
+		vel_half = particle['vel_half']
+
+		accel_final = [force/mass for force in particle['force_vect']]
+		vel_final = [vel_half[i] + accel_final[i]*timestep/2 for i in range(len(vel_half))]
+		particle['vel_vect'] = np.array(vel_final)
+		particle['KE'] = 0.5*mass*np.linalg.norm(particle['vel_vect'])**2
 
 	return positions
 
@@ -223,13 +298,17 @@ def check_boundaries(positions, box_size):
 	return positions
 
 
+def modulo(A,B):
+	return int(A) % int(B)
+
+
 def log_positions(positions, cycle_num, filename):
 	if cycle_num == 0:
 		csvfile = open(filename,'w', newline='')
 	else:
 		csvfile = open(filename,'a', newline='')
 	writer = csv.writer(csvfile, delimiter="\t")
-	writer.writerow(str(len(positions)))
+	writer.writerow([str(len(positions))])
 	writer.writerow(['Cycle Number = '+str(cycle_num)])
 	for particle in positions:
 		type = particle['type']
@@ -237,37 +316,56 @@ def log_positions(positions, cycle_num, filename):
 		writer.writerow([type, xyz])
 
 
-def run_MD(positions_file, parameters_file, log_filename, init_cycles, production_cycles, temperature, temp_range, box_size, r_cutoff, time_step):
-	positions = load_positions(positions_file, box_size)
+def log_properties(positions, cycle_num, total_PE, filename):
+	if cycle_num == -1:
+		csvfile = open(filename,'w', newline='')
+	else:
+		csvfile = open(filename,'a', newline='')
+	writer = csv.writer(csvfile, delimiter="\t")
+
+	total_KE = 0
+	for particle in positions:
+		total_KE += particle['KE']
+	total_E = total_KE + total_PE
+
+	writer.writerow(['Cycle Number = '+str(cycle_num)])
+	writer.writerow(['     Kinetic Energy = '+str(np.format_float_scientific(total_KE, precision=4))])
+	writer.writerow(['     Potential Energy = '+str(np.format_float_scientific(total_PE, precision=4))])
+	writer.writerow(['     Total Energy = '+str(np.format_float_scientific(total_E, precision=4))])
+
+
+def run_MD(positions_file, parameters_file, log_filename, init_cycles, production_cycles, temperature, box_size, r_cutoff, time_step, log_freq, log_prop_filename):
+	positions = load_positions(positions_file)
 	parameters = load_parameters(parameters_file)
-	initialize_MD(temperature, temp_range, positions, parameters)
+	initialize_MD(temperature, positions, parameters)
+	positions_with_replicas = replicate_cell(positions, box_size)
+	PE_total = calculate_forces(positions, positions_with_replicas, parameters, r_cutoff)
+
+	log_properties(positions, -1, PE_total, log_prop_filename)
 
 	for i in range(init_cycles):
 		cycle_num = i
-		positions_with_replicas = replicate_cell(positions, box_size)
-		calculate_forces(positions, positions_with_replicas, parameters, r_cutoff)
-		integrate_forces(positions, parameters, timestep)
+		# integrate_forces(positions, parameters, timestep)
+		integrate_forces_verlet(positions, parameters, timestep, box_size, r_cutoff)
 		check_boundaries(positions, box_size)
-		log_positions(positions, cycle_num, log_filename)
-	# for i in range(production_cycles):
-	# 	cycle_num = init_cycles+i
-	# 	positions_with_replicas = replicate_cell(positions, box_size)
-	# 	calculate_forces(positions, positions_with_replicas, parameters, r_cutoff)
-	# 	integrate_forces(positions, parameters, timestep)
-	# 	check_boundaries(positions, box_size)
-	# 	log_positions(positions, cycle_num, log_filename)
+		positions_with_replicas = replicate_cell(positions, box_size)
+		PE_total = calculate_forces(positions, positions_with_replicas, parameters, r_cutoff)
+		if modulo(cycle_num, log_freq) == 0:
+			log_positions(positions, cycle_num, log_filename)
+			log_properties(positions, cycle_num, PE_total, log_prop_filename)
 
 
 # Exeute Program
 pos_file = 'test_pos.xyz'
 params_file = 'LJ_params.def'
 log_file = '/Users/brian_day/Desktop/log_file_text.xyz'
-init_cycles = 100
+log_prop_file = '/Users/brian_day/Desktop/log_prop_text.txt'
+init_cycles = 20000
 prod_cycles = 200
 temperature = 300 # Kelvin
-temp_range = 30
-box_size = [10,10,10] # Angstrom
-r_cutoff = 8
-timestep = 1e-3
+box_size = [20,20,20] # Angstrom
+r_cutoff = 20 # Angstrom
+timestep = 1e-15 # Seconds
+log_freq = 20
 
-run_MD(pos_file, params_file, log_file, init_cycles, prod_cycles, temperature, temp_range, box_size, r_cutoff, timestep
+run_MD(pos_file, params_file, log_file, init_cycles, prod_cycles, temperature, box_size, r_cutoff, timestep, log_freq, log_prop_file)
