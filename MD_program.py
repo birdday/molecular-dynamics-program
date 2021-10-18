@@ -360,12 +360,12 @@ pos_file = 'test_pos.xyz'
 params_file = 'LJ_params.def'
 log_file = '/Users/brian_day/Desktop/log_file_text.xyz'
 log_prop_file = '/Users/brian_day/Desktop/log_prop_text.txt'
-init_cycles = 20000
+init_cycles = 2000
 prod_cycles = 200
 temperature = 300 # Kelvin
 box_size = [20,20,20] # Angstrom
 r_cutoff = 20 # Angstrom
-timestep = 1e-15 # Seconds
+timestep = 1e-16 #Seconds
 log_freq = 20
 
 run_MD(pos_file, params_file, log_file, init_cycles, prod_cycles, temperature, box_size, r_cutoff, timestep, log_freq, log_prop_file)
