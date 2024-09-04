@@ -1,6 +1,6 @@
 # Example Molecular Dynamics Code
 # For understanding MD / Practice with Python, Github, etc.
-# Written by: Brian brian_day
+# Written by: Brian Day
 
 # Import necessary packages
 import copy
